@@ -180,3 +180,5 @@ bool btd_device_all_services_allowed(struct btd_device *dev);
 void btd_device_update_allowed_services(struct btd_device *dev);
 void btd_device_init(void);
 void btd_device_cleanup(void);
+
+int astc_is_device_allowed(void *eir_data);

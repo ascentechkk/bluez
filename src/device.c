@@ -283,6 +283,245 @@ static const uint16_t uuid_list[] = {
 	0
 };
 
+#define ASTC_DEVICE_CLASS_MASK 0x000FFF
+
+#define ASTC_DEVICE_ALLOWED 0
+#define ASTC_DEVICE_TABOO_UUIDS_REJECTED -1
+#define ASTC_DEVICE_UNSUPPORTED_UUIDS_REJECTED -2
+#define ASTC_DEVICE_CLASS_REJECTED -3
+#define ASTC_DEVICE_UNEXPECTED_REJECTED -4
+
+static const uint32_t ASTC_ALLOWED_CLASSES[] = {
+	0x000404,	// Wearable Headset Device
+	0x000408,	// Hands-free Device
+	0x000410,	// Microphone
+	0x000414,	// Loudspeaker
+	0x000418,	// Headphones
+	0x00041c,	// Portable Audio
+	0x000420,	// Car Audio
+	0x000428,	// HiFi Audio Device
+	0x000540,	// Keyboard
+	0x000580,	// Mouse
+	0x0005c0,	// Combo Mouse/Keyboard
+	NULL,
+};
+
+static const char* ASTC_ALLOWED_UUIDS[] = {
+	"00001108-0000-1000-8000-00805f9b34fb", // HSP (Headset)
+	"00001112-0000-1000-8000-00805f9b34fb", // HSP (Headset AG)
+	"0000111e-0000-1000-8000-00805f9b34fb", // HFP (Handsfree)
+	"0000111f-0000-1000-8000-00805f9b34fb", // HFP (Handsfree Audio Gateway)
+	"0000110b-0000-1000-8000-00805f9b34fb", // A2DP (Audio Sink)
+	"00001812-0000-1000-8000-00805f9b34fb", // HID (Human Interface Device) (BLE GATT)
+	"00001124-0000-1000-8000-00805f9b34fb", // HID (Human Interface Device) (Classic)
+	NULL,
+};
+
+static const char* ASTC_REJECTED_UUIDS[] = {
+	"00001105-0000-1000-8000-00805f9b34fb", // OPP (File transfer)
+	"00001106-0000-1000-8000-00805f9b34fb", // FTP (File transfer)
+	"00000008-0000-1000-8000-00805f9b34fb", // OBEX (File transfer)
+	"00001132-0000-1000-8000-00805f9b34fb", // MAP (Message Access Server)
+	"00001133-0000-1000-8000-00805f9b34fb", // MAP (Message Notification Server)
+	"0000111a-0000-1000-8000-00805f9b34fb", // BIP (Imaging Responder)
+	"0000111b-0000-1000-8000-00805f9b34fb", // BIP (Imaging Automatic Archive)
+	"00001115-0000-1000-8000-00805f9b34fb", // PAN (Network)
+	"00001116-0000-1000-8000-00805f9b34fb", // NAP (Network)
+	"00001117-0000-1000-8000-00805f9b34fb", // GN (Network)
+	"00001102-0000-1000-8000-00805f9b34fb", // LAP (Network)
+	"00001100-0000-1000-8000-00805f9b34fb", // GAVDP (Network)
+	"00001103-0000-1000-8000-00805f9b34fb", // DUN (Network)
+	"0000000f-0000-1000-8000-00805f9b34fb", // BNEP (Network)
+	"00001820-0000-1000-8000-00805f9b34fb", // IPSP (Network)
+	NULL,
+};
+
+static GHashTable* astc_allowed_classes_set = NULL;
+static GHashTable* astc_allowed_uuids_set = NULL;
+static GHashTable* astc_rejected_uuids_set = NULL;
+
+static int astc_is_device_class_allowed(uint32_t device_class)
+{
+	if (!device_class)
+	{
+		return ASTC_DEVICE_ALLOWED;
+	}
+
+	if (!astc_allowed_classes_set)
+	{
+		astc_allowed_classes_set = g_hash_table_new(g_direct_hash, g_direct_equal);
+
+		if (!astc_allowed_classes_set)
+		{
+			return ASTC_DEVICE_UNEXPECTED_REJECTED;
+		}
+
+		for (size_t i = 0; ASTC_ALLOWED_CLASSES[i] != NULL; i++)
+		{
+			g_hash_table_add(astc_allowed_classes_set, GUINT_TO_POINTER(ASTC_ALLOWED_CLASSES[i]));
+		}
+	}
+
+	uint32_t masked_class = device_class & ASTC_DEVICE_CLASS_MASK;
+
+	if(!g_hash_table_contains(astc_allowed_classes_set, GUINT_TO_POINTER(masked_class)))
+	{
+		return ASTC_DEVICE_CLASS_REJECTED;
+	}
+
+	return ASTC_DEVICE_ALLOWED;
+}
+
+static int astc_is_device_uuids_allowed(GSList *uuids)
+{
+	gboolean allowed = FALSE;
+	GSList *iter;
+
+	if (!uuids || g_slist_length(uuids) == 0)
+	{
+		return ASTC_DEVICE_ALLOWED;
+	}
+
+	if (!astc_allowed_uuids_set)
+	{
+		astc_allowed_uuids_set = g_hash_table_new_full(g_str_hash, g_str_equal, g_free, NULL);
+
+		if (!astc_allowed_uuids_set)
+		{
+			return ASTC_DEVICE_UNEXPECTED_REJECTED;
+		}
+
+		for (size_t i = 0; ASTC_ALLOWED_UUIDS[i] != NULL; i++)
+		{
+			g_hash_table_add(astc_allowed_uuids_set, g_strdup(ASTC_ALLOWED_UUIDS[i]));
+		}
+	}
+
+	if (!astc_rejected_uuids_set)
+	{
+		astc_rejected_uuids_set = g_hash_table_new_full(g_str_hash, g_str_equal, g_free, NULL);
+
+		if (!astc_rejected_uuids_set)
+		{
+			return ASTC_DEVICE_UNEXPECTED_REJECTED;
+		}
+
+		for (size_t i = 0; ASTC_REJECTED_UUIDS[i] != NULL; i++)
+		{
+			g_hash_table_add(astc_rejected_uuids_set, g_strdup(ASTC_REJECTED_UUIDS[i]));
+		}
+	}
+
+	for (iter = uuids; iter; iter = g_slist_next(iter))
+	{
+		const char *uuid = (const char*)iter->data;
+
+		if (g_hash_table_contains(astc_rejected_uuids_set, uuid))
+		{
+			info("Rejected uuid: %s", uuid);
+			return ASTC_DEVICE_TABOO_UUIDS_REJECTED;
+		}
+
+		if (g_hash_table_contains(astc_allowed_uuids_set, uuid))
+		{
+			allowed = TRUE;
+		}
+	}
+
+	if (!allowed)
+	{
+		return ASTC_DEVICE_UNSUPPORTED_UUIDS_REJECTED;
+	}
+
+	return ASTC_DEVICE_ALLOWED;
+}
+
+static void astc_log_rejected_device(uint32_t device_class, GSList *uuids)
+{
+	info("Rejected:");
+	info("  class = %06X", device_class);
+	info("  uuids = [");
+
+	for (GSList *iter = uuids; iter; iter = g_slist_next(iter))
+	{
+		const char *uuid = (const char*)iter->data;
+		info("    %s,", uuid);
+	}
+
+	info("  ]");
+}
+
+static int astc_is_class_uuids_allowed(uint32_t device_class, GSList *uuids)
+{
+	int reject_reason;
+
+	reject_reason = astc_is_device_uuids_allowed(uuids);
+
+	if (reject_reason < 0)
+	{
+		astc_log_rejected_device(device_class, uuids);
+		return reject_reason;
+	}
+
+	reject_reason = astc_is_device_class_allowed(device_class);
+
+	if (reject_reason < 0)
+	{
+		astc_log_rejected_device(device_class, uuids);
+		return reject_reason;
+	}
+
+	return ASTC_DEVICE_ALLOWED;
+}
+
+static GSList* astc_eir_to_uuids(struct eir_data *eir_data)
+{
+	GSList *uuids = NULL;
+	GSList *iter;
+	struct eir_sd *sd;
+
+	if (!eir_data->services && !eir_data->sd_list)
+	{
+		return NULL;
+	}
+
+	if (eir_data->services)
+	{
+		for (iter = eir_data->services; iter; iter = g_slist_next(iter))
+		{
+			uuids = g_slist_append(uuids, g_strdup((const char*)iter->data));
+		}
+	}
+
+	if (eir_data->sd_list)
+	{
+		for (iter = eir_data->sd_list; iter; iter = g_slist_next(iter))
+		{
+			sd = (struct eir_sd*)iter->data;
+			uuids = g_slist_append(uuids, g_strdup(sd->uuid));
+		}
+	}
+
+	return uuids;
+}
+
+int astc_is_device_allowed(void *eir_data)
+{
+	struct eir_data *data = (struct eir_data*)eir_data;
+	GSList *uuids = NULL;
+	int reject_reason;
+
+	uuids = astc_eir_to_uuids(data);
+	reject_reason = astc_is_class_uuids_allowed(data->class, uuids);
+
+	if (uuids)
+	{
+		g_slist_free_full(uuids, g_free);
+	}
+
+	return reject_reason;
+}
+
 static int device_browse_gatt(struct btd_device *device, DBusMessage *msg);
 static int device_browse_sdp(struct btd_device *device, DBusMessage *msg);
 
@@ -2276,6 +2515,15 @@ static DBusMessage *dev_connect(DBusConnection *conn, DBusMessage *msg,
 {
 	struct btd_device *dev = user_data;
 	uint8_t bdaddr_type;
+	char addr[18];
+
+	int reject_reason = astc_is_class_uuids_allowed(dev->class, dev->uuids);
+	if (reject_reason < 0)
+	{
+		ba2str(&dev->bdaddr, addr);
+		info("Rejected on connection: name = %s, addr = %s, reason = %d", dev->name, addr, -reject_reason);
+		return btd_error_failed(msg, strerror(1));;
+	}
 
 	if (dev->bredr_state.connected) {
 		/*

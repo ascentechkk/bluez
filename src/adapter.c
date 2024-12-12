@@ -6917,6 +6917,14 @@ void btd_adapter_update_found_device(struct btd_adapter *adapter,
 
 	ba2str(bdaddr, addr);
 
+	int reject_reason = astc_is_device_allowed(&eir_data);
+	if (reject_reason < 0)
+	{
+		info("Rejected on discovery: name = %s, addr = %s, reason = %d", eir_data.name, addr, -reject_reason);
+		eir_data_free(&eir_data);
+		return;
+	}
+
 	discoverable = device_is_discoverable(adapter, &eir_data, addr,
 							bdaddr_type);
 
